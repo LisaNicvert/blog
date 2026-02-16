@@ -1,0 +1,86 @@
+---
+title: "Do all Wikipedia articles really lead to \"philosophy\"?"
+description: "Post description"
+author: "Lisa Nicvert"
+date: "15/02/2026"
+---
+
+```{r}
+library(jsonlite)
+library(httr)
+library(rvest)
+```
+
+```{r}
+key <- Sys.getenv("API_KEY")
+language <- "en"
+
+url <- paste0("https://", language, ".wikipedia.org/w/api.php/")
+header <- add_headers("Authorization" = paste("Bearer", key))
+```
+
+```{r}
+# API actions
+# https://www.mediawiki.org/wiki/API:Action_API
+
+# General query doc
+# https://www.mediawiki.org/wiki/API:Query#API_documentation
+# Get a list of random pages
+
+par <- list("action" = "query",
+            "format" = "json",
+            "list" = "random",
+            "rnfilterredir" = "nonredirects",
+            "rnnamespace" = 0,
+            "rnlimit" = 10)
+
+res <- GET(url, header,
+           query = par)
+resj <- fromJSON(content(res, "text"), flatten = TRUE)
+resj
+```
+
+```{r}
+# par <- list("action" = "query",
+#             "format" = "json",
+#             "prop" = "links",
+#             "pllimit" = 20,
+#             "plnamespace" = 0, # https://en.wikipedia.org/wiki/Wikipedia:Namespace
+#             "titles" = "Cat")
+# 
+# par <- list("action" = "query",
+#             "format" = "json",
+#             "prop" = "extracts",
+#             "exsectionformat" = "wiki",
+#             "titles" = "Cat")
+
+# res <- GET("https://en.wikipedia.org/w/api.php/?action=query&titles=Cat&format=json&prop=revisions&rvprop=content&rvslots=*", header) # prop=wikitext
+# resj <- fromJSON(content(res, "text"), flatten = TRUE)
+# resj
+
+# https://www.mediawiki.org/wiki/Extension:TextExtracts#API ?
+# Can select some parts of text but not formatted with links
+res <- GET("https://en.wikipedia.org/w/api.php/?action=parse&format=json&prop=text&page=Cat", header) # prop=wikitext
+resj <- fromJSON(content(res, "text"), flatten = TRUE)
+article_text <- resj$parse$text$`*`
+
+art <- read_html(article_text)
+
+# Get paragraphs
+par <- art |> 
+  html_elements("p") # html_elements(!"mw-empty-elt")
+
+# Get all links within second paragraph
+links <- par[[2]] |> 
+  # html_children() |> 
+  html_elements("a")
+
+ind <- min(grep(pattern = "href=\"/wiki/", links))
+first_link <- as.character(links[ind])
+
+title_page <- gsub(".*href\\=\"/wiki/(\\S+)\".*", "\\1", first_link)
+```
+
+
+
+
