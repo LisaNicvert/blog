@@ -9,6 +9,7 @@ date: "15/02/2026"
 library(jsonlite)
 library(httr)
 library(rvest)
+library(here)
 ```
 
 ```{r}
@@ -20,24 +21,162 @@ header <- add_headers("Authorization" = paste("Bearer", key))
 ```
 
 ```{r}
+chain_max <- 50
+n_articles <- 100
+```
+
+```{r}
 # API actions
 # https://www.mediawiki.org/wiki/API:Action_API
+```
 
-# General query doc
+```{r}
+#' Get first link
+#' 
+#' Get first link from a Wikipedia article
+#'
+#' @param article_str String representation of the article
+#' @param return_title Return the article title instead of the link?
+#'
+#' @returns If `return_title` is `TRUE`, returns the Wikipedia article title of the first link.
+#' Else returns the first link of the text (in HTML format as `<a href="...">...</a>`)
+#' @export
+get_first_link <- function(article_str, return_title = TRUE) {
+  # Parse to HTML
+  article_html <- read_html(article_str)
+
+  # Get all links
+  # First try with paragraphs
+  links <- article_html |> 
+    html_elements("p") |> 
+    html_elements("a")
+  
+  # If no luck try with ul
+  if (length(links) == 0) {
+    links <- article_html |> 
+    html_elements("ul") |> 
+    html_elements("a")
+  }
+  
+  # Get first link pointing to a wiki (exclude special pages beginning with xxx: (e.g. Help, Wikipedia:))
+  first_ind <- min(grep(pattern = "href=\"/wiki/(?![A-z]+:)", 
+                        links, perl = TRUE))
+  
+  # First link
+  res <- as.character(links[first_ind])
+  if (return_title) {
+    # Get corresponding page title
+    res <- gsub(".*href\\=\"/wiki/(\\S+)\".*", "\\1", res)
+  }
+  
+  return(res)
+}
+```
+
+
+```{r}
+# Query doc
 # https://www.mediawiki.org/wiki/API:Query#API_documentation
-# Get a list of random pages
+# Random doc
+# https://www.mediawiki.org/wiki/API:Random
 
+# Get random Wikipedia articles
 par <- list("action" = "query",
             "format" = "json",
             "list" = "random",
             "rnfilterredir" = "nonredirects",
             "rnnamespace" = 0,
-            "rnlimit" = 10)
+            "rnlimit" = n_articles)
 
 res <- GET(url, header,
            query = par)
-resj <- fromJSON(content(res, "text"), flatten = TRUE)
-resj
+resj <- fromJSON(content(res, "text"), 
+                 flatten = TRUE)
+random_pages <- resj$query$random
+```
+
+```{r}
+# Save results (because no seed)
+saveRDS(random_pages, file = here("posts", "pages.rds"))
+
+# random_pages <- readRDS(here("posts", "pages.rds"))
+```
+
+```{r}
+# Initialize links list
+all_links <- vector(mode = "list", length = n_articles)
+
+for (i in 90:n_articles) {
+  # Get first page
+  starting_page <- random_pages$title[i]
+  
+  message("Traversing links for article ",
+          starting_page, " (", i, "/", n_articles, 
+          ") ====================")
+  
+  # Initialize list
+  links_vec <- starting_page
+  
+  # Initialize search page
+  page <- starting_page
+  
+  for (j in 1:chain_max) {
+    message("Link #", j, " ---")
+    # Get Wikipedia article body
+    # https://www.mediawiki.org/wiki/API:Parsing_wikitext
+    par <- list("action" = "parse",
+                "page" = page,
+                # "page" = "Ancient Greek",
+                "format" = "json",
+                "redirects" = "",
+                "prop" = "text")
+  
+    res <- GET(url, header,
+               query = par)
+    resj <- fromJSON(content(res, "text"), flatten = TRUE)
+    
+    # Extract links from article body
+    article_str <- resj$parse$text$`*`
+    
+    # Get first link
+    first_link <- get_first_link(article_str)
+    # Replace with spaces
+    first_link <- gsub(pattern = "_", replacement = " ", first_link)
+    # And decode URL for special characters (e.g. %E2%80%93)
+    first_link <- URLdecode(first_link)
+    
+    if (first_link %in% links_vec) {
+      message("Loop detected for '", starting_page, "' with '", 
+              first_link, "' : exiting loop")
+      # Store results before exiting
+      links_vec <- c(links_vec, first_link)
+      break
+    } else {
+      message("First link: ", first_link)
+      # Store results
+      links_vec <- c(links_vec, first_link)
+      # Update search page
+      page <- first_link
+    }
+  }
+  
+  # Add the article links chain to articles chains
+  all_links[[i]] <- links_vec
+}
+
+
+```
+
+
+```{r}
+# Save results
+saveRDS(all_links, file = here("posts", "links.rds"))
+
+list_length <- sapply(all_links, length)
+end_links <- sapply(seq_along(all_links), function(i) all_links[[i]][list_length[i]])
+
+sort(table(end_links))
+# all_links <- readRDS(here("posts", "links.rds"))
 ```
 
 ```{r}
@@ -60,27 +199,4 @@ resj
 
 # https://www.mediawiki.org/wiki/Extension:TextExtracts#API ?
 # Can select some parts of text but not formatted with links
-res <- GET("https://en.wikipedia.org/w/api.php/?action=parse&format=json&prop=text&page=Cat", header) # prop=wikitext
-resj <- fromJSON(content(res, "text"), flatten = TRUE)
-article_text <- resj$parse$text$`*`
-
-art <- read_html(article_text)
-
-# Get paragraphs
-par <- art |> 
-  html_elements("p") # html_elements(!"mw-empty-elt")
-
-# Get all links within second paragraph
-links <- par[[2]] |> 
-  # html_children() |> 
-  html_elements("a")
-
-ind <- min(grep(pattern = "href=\"/wiki/", links))
-first_link <- as.character(links[ind])
-
-title_page <- gsub(".*href\\=\"/wiki/(\\S+)\".*", "\\1", first_link)
 ```
-
-
-
-
