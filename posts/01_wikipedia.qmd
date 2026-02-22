@@ -6,10 +6,13 @@ date: "15/02/2026"
 ---
 
 ```{r}
-library(jsonlite)
-library(httr)
-library(rvest)
-library(here)
+#| include: false
+library(httr) # query API
+library(jsonlite) # format JSON
+library(rvest) # Format HTML
+library(here) # Path management
+library(igraph) # Handle graph object
+library(ggraph) # Plot graph
 ```
 
 ```{r}
@@ -45,25 +48,28 @@ get_first_link <- function(article_str, return_title = TRUE) {
   # Parse to HTML
   article_html <- read_html(article_str)
 
-  # Get all links
+  # Get all links pointing to a wiki
+  # (Exclude special pages beginning with xxx: (e.g. Help, Wikipedia:)))
+  
   # First try with paragraphs
   links <- article_html |> 
     html_elements("p") |> 
-    html_elements("a")
+    html_elements("a") |> 
+    grep(pattern = "href=\"/wiki/(?![A-z]+:)", 
+         perl = TRUE, value = TRUE)
   
-  # If no luck try with ul
+  # If no luck, try with ul
   if (length(links) == 0) {
     links <- article_html |> 
-    html_elements("ul") |> 
-    html_elements("a")
+      html_elements("ul") |> 
+      html_elements("a") |> 
+      grep(pattern = "href=\"/wiki/(?![A-z]+:)", 
+           perl = TRUE, value = TRUE)
   }
   
-  # Get first link pointing to a wiki (exclude special pages beginning with xxx: (e.g. Help, Wikipedia:))
-  first_ind <- min(grep(pattern = "href=\"/wiki/(?![A-z]+:)", 
-                        links, perl = TRUE))
+  # Get first link
+  res <- links[1]
   
-  # First link
-  res <- as.character(links[first_ind])
   if (return_title) {
     # Get corresponding page title
     res <- gsub(".*href\\=\"/wiki/(\\S+)\".*", "\\1", res)
@@ -75,6 +81,7 @@ get_first_link <- function(article_str, return_title = TRUE) {
 
 
 ```{r}
+#| eval: true
 # Query doc
 # https://www.mediawiki.org/wiki/API:Query#API_documentation
 # Random doc
@@ -93,110 +100,220 @@ res <- GET(url, header,
 resj <- fromJSON(content(res, "text"), 
                  flatten = TRUE)
 random_pages <- resj$query$random
-```
 
-```{r}
-# Save results (because no seed)
+# Save results (because there is no seed in the query)
 saveRDS(random_pages, file = here("posts", "pages.rds"))
-
-# random_pages <- readRDS(here("posts", "pages.rds"))
 ```
 
 ```{r}
-# Initialize links list
-all_links <- vector(mode = "list", length = n_articles)
+random_pages <- readRDS(here("posts", "pages.rds"))
+```
 
-for (i in 90:n_articles) {
-  # Get first page
-  starting_page <- random_pages$title[i]
+```{r}
+#| eval: true
+
+system.time({
   
-  message("Traversing links for article ",
-          starting_page, " (", i, "/", n_articles, 
-          ") ====================")
+  # Initialize links list
+  all_links <- vector(mode = "list", length = n_articles)
+  unique_links <- c()
   
-  # Initialize list
-  links_vec <- starting_page
-  
-  # Initialize search page
-  page <- starting_page
-  
-  for (j in 1:chain_max) {
-    message("Link #", j, " ---")
-    # Get Wikipedia article body
-    # https://www.mediawiki.org/wiki/API:Parsing_wikitext
-    par <- list("action" = "parse",
-                "page" = page,
-                # "page" = "Ancient Greek",
-                "format" = "json",
-                "redirects" = "",
-                "prop" = "text")
-  
-    res <- GET(url, header,
-               query = par)
-    resj <- fromJSON(content(res, "text"), flatten = TRUE)
+  for (i in 1:n_articles) {
+    # Get first page
+    starting_page <- random_pages$title[i]
     
-    # Extract links from article body
-    article_str <- resj$parse$text$`*`
+    message("Traversing links for article ",
+            starting_page, " (", i, "/", n_articles, 
+            ") ====================")
     
-    # Get first link
-    first_link <- get_first_link(article_str)
-    # Replace with spaces
-    first_link <- gsub(pattern = "_", replacement = " ", first_link)
-    # And decode URL for special characters (e.g. %E2%80%93)
-    first_link <- URLdecode(first_link)
+    # Initialize list
+    links_vec <- starting_page
     
-    if (first_link %in% links_vec) {
-      message("Loop detected for '", starting_page, "' with '", 
-              first_link, "' : exiting loop")
-      # Store results before exiting
-      links_vec <- c(links_vec, first_link)
-      break
-    } else {
-      message("First link: ", first_link)
-      # Store results
-      links_vec <- c(links_vec, first_link)
-      # Update search page
-      page <- first_link
+    # Initialize search page
+    page <- starting_page
+    
+    for (j in 1:chain_max) {
+      message("Link #", j, " ---")
+      # Get Wikipedia article body
+      # https://www.mediawiki.org/wiki/API:Parsing_wikitext
+      par <- list("action" = "parse",
+                  "page" = page,
+                  # "page" = "Ancient Greek",
+                  "format" = "json",
+                  "redirects" = "",
+                  "prop" = "text")
+    
+      res <- GET(url, header,
+                 query = par)
+      resj <- fromJSON(content(res, "text"), flatten = TRUE)
+      
+      # Extract links from article body
+      article_str <- resj$parse$text$`*`
+      
+      # Get first link
+      first_link <- get_first_link(article_str)
+      # Replace with spaces
+      first_link <- gsub(pattern = "_", replacement = " ", first_link)
+      # And decode URL for special characters (e.g. %E2%80%93)
+      first_link <- URLdecode(first_link)
+      
+      if (first_link %in% links_vec) {
+        message("Loop detected for '", starting_page, "' with '", 
+                first_link, "' : exiting loop")
+        # Store results before exiting
+        links_vec <- c(links_vec, first_link)
+        break
+      } else if (first_link %in% unique_links) {
+        message("Link ", first_link, " already detected: exiting loop")
+        # Store results before exiting
+        links_vec <- c(links_vec, first_link)
+        break
+      } else {
+        message("First link: ", first_link)
+        # Store results
+        links_vec <- c(links_vec, first_link)
+        # Update search page
+        page <- first_link
+      }
     }
+    
+    # Add the article links chain to articles chains
+    all_links[[i]] <- links_vec
+    
+    # Get new links from last loop
+    new_links <- links_vec[1:(length(links_vec)-1)]
+    new_links <- new_links[which(!(new_links %in% unique_links))]
+    
+    # Get unique links
+    unique_links <- c(unique_links, new_links)
   }
-  
-  # Add the article links chain to articles chains
-  all_links[[i]] <- links_vec
-}
+})
 
-
-```
-
-
-```{r}
 # Save results
 saveRDS(all_links, file = here("posts", "links.rds"))
+```
 
-list_length <- sapply(all_links, length)
-end_links <- sapply(seq_along(all_links), function(i) all_links[[i]][list_length[i]])
 
-sort(table(end_links))
-# all_links <- readRDS(here("posts", "links.rds"))
+```{r}
+# Read results
+all_links <- readRDS(file = here("posts", "links.rds"))
+```
+
+
+```{r}
+# Format output for network
+nk_list <- lapply(all_links, function(l) {
+  cbind(l[1:(length(l)-1)], l[2:length(l)])})
+nk <- do.call("rbind", nk_list)
+
+# Create graph
+g <- igraph::graph_from_edgelist(nk, directed = TRUE)
+```
+
+
+```{r}
+# Get all starting articles
+starting_nodes <- sapply(all_links, function(l) l[1])
+
+# Initialize list
+complete_paths <- vector(mode = "list", 
+                         length = length(starting_nodes))
+
+for (i in 1:length(starting_nodes)) {
+  # Get all simple paths (excluding loops)
+  simple_paths <- all_simple_paths(from = starting_nodes[i],
+                                   g, mode = "out")
+  # Get the longest
+  longest_path_ind <- which.max(sapply(simple_paths, length))
+  longest_path <- simple_paths[[longest_path_ind]]
+  
+  # Repeat the last vertex to know where the loop starts
+  last_vertex <- longest_path[length(longest_path)]
+  loop_vertex <- neighbors(g, last_vertex)
+  
+  # Create final path
+  longest_path <- c(longest_path, loop_vertex)
+  longest_path <- longest_path$name
+  
+  complete_paths[[i]] <- longest_path
+}
 ```
 
 ```{r}
-# par <- list("action" = "query",
-#             "format" = "json",
-#             "prop" = "links",
-#             "pllimit" = 20,
-#             "plnamespace" = 0, # https://en.wikipedia.org/wiki/Wikipedia:Namespace
-#             "titles" = "Cat")
-# 
-# par <- list("action" = "query",
-#             "format" = "json",
-#             "prop" = "extracts",
-#             "exsectionformat" = "wiki",
-#             "titles" = "Cat")
+# Get the ending links for all articles
+list_length <- sapply(complete_paths, length)
+end_links <- sapply(seq_along(complete_paths), 
+                    function(i) complete_paths[[i]][list_length[i]])
 
-# res <- GET("https://en.wikipedia.org/w/api.php/?action=query&titles=Cat&format=json&prop=revisions&rvprop=content&rvslots=*", header) # prop=wikitext
-# resj <- fromJSON(content(res, "text"), flatten = TRUE)
-# resj
+sort(table(end_links))
+```
+```{r}
+# Get mean path length (without loop)
+before_loop <- lapply(complete_paths, 
+                      function(l) {
+                        dup <- which(l == l[duplicated(l)])
+                        l[1:min(dup)]
+                        })
 
-# https://www.mediawiki.org/wiki/Extension:TextExtracts#API ?
-# Can select some parts of text but not formatted with links
+link_length <- sapply(before_loop, length)
+
+mean(link_length)
+```
+
+```{r}
+# Set node type (start, end or none)
+vertices <- V(g)$name
+ind_start <- match(starting_nodes, vertices)
+ind_end <- match(end_links, vertices)
+
+type <- rep("none", length(V(g)))
+type[ind_start] <- "start"
+type[ind_end] <- "end"
+
+V(g)$type <- type
+
+# Set degree attribute
+V(g)$degree <- degree(g, mode = "in")
+
+# Get mutual edges (for plot)
+mutual <- which_mutual(g)
+curvature <- ifelse(mutual, 0.5, 0)
+```
+
+
+```{r}
+# Plot graph
+lay <- create_layout(g, "stress",
+                     bbox = 10)
+gg <- ggraph(lay) +
+  geom_edge_arc(strength = curvature) +
+  # geom_node_point(aes(size = degree,
+  #                     color = type), 
+  #                 show.legend = FALSE) +
+  geom_point_interactive(aes(x = x, y = y, size = degree,
+                             color = type, tooltip = name), 
+                         show.legend = FALSE) +
+  # geom_node_text(aes(label = ifelse(type == "start", name, "")),
+  #                size = 1.5,
+  #                color = "grey30",
+  #                min.segment.length = 0.1,
+  #                repel = TRUE,
+  #                show.legend = FALSE) +
+  # geom_node_label(aes(label = ifelse(type == "end", name, ""),
+  #                     size = degree),
+  #                 label.padding = unit(0.15, "lines"),
+  #                 color = "darkred",
+  #                 repel = TRUE,
+  #                 force_pull = .1,
+  #                 force = 3,
+  #                 max.overlaps = 100,
+  #                 show.legend = FALSE) +
+  scale_size(range = c(1, 3)) +
+  scale_color_manual(values = c("start" = "cornflowerblue", 
+                                "none" = "black",
+                                "end" = "darkred")) +
+  theme_void() +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+girafe(gg)
 ```
