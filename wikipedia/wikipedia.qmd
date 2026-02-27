@@ -79,7 +79,7 @@ saveRDS(random_pages, file = here("data", "01_wikipedia", "pages.rds"))
 
 ```{r}
 #| echo: false
-random_pages <- readRDS(here("posts", "wikipedia", "data", "pages.rds"))
+random_pages <- readRDS(here("wikipedia", "data", "pages.rds"))
 ```
 
 Here are a few of these random pages:
@@ -244,14 +244,14 @@ for (i in 1:n_articles) {
 }
 
 # Save results
-saveRDS(all_links, file = here("posts", "wikipedia", "data", "links.rds"))
+saveRDS(all_links, file = here("wikipedia", "data", "links.rds"))
 ```
 
 
 ```{r}
 #| echo: false
 # Read results
-all_links <- readRDS(file = here("posts", "wikipedia", "data", "links.rds"))
+all_links <- readRDS(file = here("wikipedia", "data", "links.rds"))
 ```
 
 Ultimately, this code produces a list of chains of links from article to article. Each chains stops when a loop has been detected.
@@ -416,7 +416,7 @@ In fact, a vast majority of the articles end up on a loop which passes through p
 #| include: false
 
 # Save image for thumbnail
-ggsave(here("posts", "wikipedia", "images", "wikipedia.jpg"), gg,
+ggsave(here("wikipedia", "images", "wikipedia.jpg"), gg,
        height = 1260, width = 2400, units = "px", 
        bg = "white")
 ```
