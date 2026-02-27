@@ -7,3 +7,8 @@
 
 *.Rproj
 .Renviron
+
+
+**/*.markdown_strict_files
+**/*.md
+**/*_files
