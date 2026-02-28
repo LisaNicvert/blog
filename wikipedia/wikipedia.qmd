@@ -1,10 +1,10 @@
 ---
-title: "Do all Wikipedia articles really lead to \"philosophy\"?"
+title: "Do all Wikipedia articles really lead to philosophy?"
 description: "Post description"
 author: "Lisa Nicvert"
 date: "2026-02-15"
 format: hugo-md
-image: posts/wikipedia/images/wikipedia.jpg"
+image: "/posts/wikipedia/images/wikipedia.jpg"
 categories: 
   - R
   - Wikimedia
@@ -74,12 +74,12 @@ resj <- jsonlite::fromJSON(content(res, "text"),
 random_pages <- resj$query$random
 
 # Save results (because there is no seed in the query)
-saveRDS(random_pages, file = here("data", "01_wikipedia", "pages.rds"))
+saveRDS(random_pages, file = file.path("wikipedia", "data", "pages.rds"))
 ```
 
 ```{r}
 #| echo: false
-random_pages <- readRDS(here("wikipedia", "data", "pages.rds"))
+random_pages <- readRDS(file.path("wikipedia", "data", "pages.rds"))
 ```
 
 Here are a few of these random pages:
@@ -244,14 +244,14 @@ for (i in 1:n_articles) {
 }
 
 # Save results
-saveRDS(all_links, file = here("wikipedia", "data", "links.rds"))
+saveRDS(all_links, file = file.path("wikipedia", "data", "links.rds"))
 ```
 
 
 ```{r}
 #| echo: false
 # Read results
-all_links <- readRDS(file = here("wikipedia", "data", "links.rds"))
+all_links <- readRDS(file = file.path("wikipedia", "data", "links.rds"))
 ```
 
 Ultimately, this code produces a list of chains of links from article to article. Each chains stops when a loop has been detected.
@@ -309,6 +309,7 @@ for (i in 1:length(starting_nodes)) {
 First, let's investigate the length of links chains (i.e., the length of links chain before ending up on a loop).
 
 ```{r}
+#| label: chains-length
 #| code-fold: true
 
 # Get mean path length (without loop)
@@ -339,6 +340,7 @@ Here, the mean links chain is `r mean_length`, and doesn't go over `r max(link_l
 And for the long-awaited result: Where do articles end up?
 
 ```{r}
+#| label: articles-end
 #| code-fold: true
 
 # Get the ending links for all articles
@@ -363,6 +365,7 @@ Here, 68% of articles from my subset end up on philosophy: that is, they reach a
 The graph below shows the full story. Blue dots show starting articles and red dots end articles. You can hover articles to see their name.
 
 ```{r}
+#| label: articles-graph
 #| code-fold: true
 
 # Prepare data for plot ---
@@ -416,7 +419,7 @@ In fact, a vast majority of the articles end up on a loop which passes through p
 #| include: false
 
 # Save image for thumbnail
-ggsave(here("wikipedia", "images", "wikipedia.jpg"), gg,
+ggsave(file.path("wikipedia", "images", "wikipedia.jpg"), gg,
        height = 1260, width = 2400, units = "px", 
        bg = "white")
 ```
